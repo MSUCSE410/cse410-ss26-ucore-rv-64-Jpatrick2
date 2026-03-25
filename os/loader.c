@@ -70,6 +70,9 @@ int run_all_app()
 		/*
 		* LAB1: you may need to initialize your new fields of proc here
 		*/
+		p->state = RUNNABLE;
+		p->syscall_count = 0;
+		memset(p->syscall_times, 0, sizeof(p->syscall_times));
 	}
 	return 0;
 }
