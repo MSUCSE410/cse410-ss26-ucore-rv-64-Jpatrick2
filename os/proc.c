@@ -3,6 +3,7 @@
 #include "loader.h"
 #include "trap.h"
 #include "vm.h"
+#include "timer.h"
 
 struct proc pool[NPROC];
 __attribute__((aligned(16))) char kstack[NPROC][PAGE_SIZE];
@@ -35,6 +36,7 @@ void proc_init(void)
 		*/
 		p->syscall_count = 0;
         memset(p->syscall_times, 0, sizeof(p->syscall_times));
+		p->start_time_ms = 0;
 
 	}
 	idle.kstack = (uint64)boot_stack_top;
@@ -82,20 +84,28 @@ found:
 //    via swtch back to the scheduler.
 void scheduler(void)
 {
-	struct proc *p;
-	for (;;) {
-		for (p = pool; p < &pool[NPROC]; p++) {
-			if (p->state == RUNNABLE) {
-				/*
-				* LAB1: you may need to init proc start time here
-				*/
-				p->state = RUNNING;
-				current_proc = p;
-				swtch(&idle.context, &p->context);
-			}
-		}
-	}
+    struct proc *p;
+    for (;;) {
+        for (p = pool; p < &pool[NPROC]; p++) {
+            if (p->state == RUNNABLE) {
+                /*
+                 * LAB1: you may need to init proc start time here
+                 */
+                if (p->start_time_ms == 0) {
+                    uint64 cycle = get_cycle();
+                    uint64 sec  = cycle / CPU_FREQ;
+                    uint64 usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
+                    p->start_time_ms = sec * 1000 + usec / 1000;
+                }
+
+                p->state = RUNNING;
+                current_proc = p;
+                swtch(&idle.context, &p->context);
+            }
+        }
+    }
 }
+
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores

@@ -72,35 +72,28 @@ int sys_task_info(struct task_info *uinfo)
     struct task_info *info = (struct task_info *)kva;
 
     switch (cur->state) {
-    case RUNNABLE:
-        info->status = Ready;
-        break;
-    case RUNNING:
-        info->status = Running;
-        break;
+    case RUNNABLE: info->status = Ready;   break;
+    case RUNNING:  info->status = Running; break;
     case UNUSED:
-    case USED:
-        info->status = UnInit;
-        break;
+    case USED:     info->status = UnInit;  break;
     case ZOMBIE:
     case SLEEPING:
-    default:
-        info->status = Exited;
-        break;
+    default:       info->status = Exited;  break;
     }
 
-    for (int i = 0; i < MAX_SYSCALL_NUM; i++) {
+    for (int i = 0; i < MAX_SYSCALL_NUM; i++)
         info->syscall_times[i] = cur->syscall_times[i];
-    }
 
     uint64 cycle = get_cycle();
     uint64 sec  = cycle / CPU_FREQ;
     uint64 usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
-    uint64 ms   = sec * 1000 + usec / 1000;
-    info->time = (int)ms;
+    uint64 now_ms = sec * 1000 + usec / 1000;
+
+    info->time = (int)(now_ms - cur->start_time_ms);
 
     return 0;
 }
+
 
 int sys_mmap(uint64 start, uint64 len, int port, int flag, int fd)
 {
@@ -108,22 +101,20 @@ int sys_mmap(uint64 start, uint64 len, int port, int flag, int fd)
 
     if (len == 0)
         return 0;
-
-    if (len > (1ULL << 30)) 
+    if (len > (1ULL << 30))
+        return -1;
+    if (port & ~0x7)
+        return -1;
+    if ((port & 0x7) == 0)
         return -1;
 
-    if (port & ~0x7)         
+    if (start % PGSIZE != 0)
         return -1;
 
-    if ((port & 0x7) == 0)   
-        return -1;
+    uint64 first = start;
+    uint64 last  = PGROUNDDOWN(start + len - 1);
 
-    uint64 va = start;
-    uint64 end = start + len;
-    va = PGROUNDDOWN(va);
-    end = PGROUNDUP(end);
-
-    for (uint64 a = va; a < end; a += PGSIZE) {
+    for (uint64 a = first; a <= last; a += PGSIZE) {
         if (walkaddr(p->pagetable, a) != 0)
             return -1;
     }
@@ -133,13 +124,10 @@ int sys_mmap(uint64 start, uint64 len, int port, int flag, int fd)
     if (port & 2) flags |= PTE_W;
     if (port & 4) flags |= PTE_X;
 
-    for (uint64 a = va; a < end; a += PGSIZE) {
+    for (uint64 a = first; a <= last; a += PGSIZE) {
         char *pa = kalloc();
-        if (!pa)
-            return -1;
-
+        if (!pa) return -1;
         memset(pa, 0, PGSIZE);
-
         if (mappages(p->pagetable, a, PGSIZE, (uint64)pa, flags) != 0)
             return -1;
     }
@@ -154,17 +142,18 @@ int sys_munmap(uint64 start, uint64 len, int port, int flag, int fd)
     if (len == 0)
         return 0;
 
-    uint64 va = PGROUNDDOWN(start);
-    uint64 end = PGROUNDUP(start + len);
+    if (start % PGSIZE != 0)
+        return -1;
 
-    // Check all pages exist
-    for (uint64 a = va; a < end; a += PGSIZE) {
-        uint64 pa = walkaddr(p->pagetable, a);
-        if (pa == 0)
+    uint64 first = PGROUNDDOWN(start);
+    uint64 last  = PGROUNDDOWN(start + len - 1);
+
+    for (uint64 a = first; a <= last; a += PGSIZE) {
+        if (walkaddr(p->pagetable, a) == 0)
             return -1;
     }
 
-    for (uint64 a = va; a < end; a += PGSIZE) {
+    for (uint64 a = first; a <= last; a += PGSIZE) {
         uint64 pa = walkaddr(p->pagetable, a);
         kfree((void*)pa);
         uvmunmap(p->pagetable, a, 1, 0);
@@ -172,6 +161,9 @@ int sys_munmap(uint64 start, uint64 len, int port, int flag, int fd)
 
     return 0;
 }
+
+
+
 
 
 extern char trap_page[];

@@ -44,6 +44,7 @@ struct proc {
 	*/
 	int syscall_count;
 	int syscall_times[MAX_SYSCALL_NUM];
+	uint64 start_time_ms;
 };
 
 /*
